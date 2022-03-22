@@ -16,7 +16,7 @@ export const MessageBox: FC<IProps> = (props) => {
      * `我的`消息放右侧
      * `其他人`的消息放左侧
      */
-    return <div style={{padding: '30px'}}>
+    return <div style={{padding: '20px'}}>
         {
             props.messageList.map((msgItem, idx) => {
                 return <div key={idx} style={{

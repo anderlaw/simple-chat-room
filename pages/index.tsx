@@ -1,78 +1,129 @@
 import type {NextPage} from 'next'
-import Head from 'next/head'
-import Image from 'next/image'
 import styles from '../styles/Home.module.css'
-import {Channel, StreamChat} from 'stream-chat'
-import {useEffect, useState} from "react";
+import {Channel, MessageResponse, StreamChat} from 'stream-chat'
+import {FC, useEffect, useState} from "react";
 import userName from "../utilities/userName";
 import {API_KEY} from "../config/key";
+import {useRouter} from "next/router";
+import {Avatar} from "../components/Avatar";
+import {MessageBox} from "../components/MessageBox";
+import {ChatBox} from "../components/ChatBox";
 
-const client = StreamChat.getInstance("vft9yetrruh8")
-
+const ChannelBox: FC<{
+    leftEle: JSX.Element,
+    rightEle: JSX.Element | null
+}> = (props) => {
+    return <div style={{display: 'flex', height: '400px', boxShadow: '0px 0px 5px #ccc'}}>
+        <div style={{width: '100px', overflowY: 'auto', padding: '16px'}}>
+            {props.leftEle}
+        </div>
+        <div style={{flexGrow: 1, overflowY: 'auto', backgroundColor: '#f3f3f38c'}}>
+            {props.rightEle}
+        </div>
+    </div>
+}
 const Home: NextPage = () => {
-    //username state
+    const router = useRouter()
+    //auth information
     const [username, setUsername] = useState<string>('')
-
-    //当前登陆用户名
-    const [loginUsername, setLoginUsername] = useState<string>('')
-    //chat client
-    const [chatClient, setChatClient] = useState<StreamChat | null>(null)
-    const [userToken, setUserToken] = useState<string>('')
-    //用户初始化状态
-    const [isLogin, setIsLogin] = useState<boolean>(false)
-    //用户名列表
-    const [usernames, setUsernames] = useState<Array<string>>([])
-    const [channelList, setChannelList] = useState<Array<{
+    const [userInfo, setUserInfo] = useState<{
+        id: string,
         name: string,
-        channel: Channel
-    }>>([])
-    //聊天
-    const [channel, setChannel] = useState<Channel | null>(null)
+        online: boolean,
+        role: 'user' | 'admin',
+        image: string
+    } | null>(null)
+    const [chatClient, setChatClient] = useState<StreamChat | null>(null)
+
+    //频道信息
+    const [curChannel, setCurChannel] = useState<Channel | null>(null)
+
+
+    const [channel, setChannel] = useState<Array<Channel>>([])
+    const [channelList, setChannelList] = useState<Array<Channel>>([])
     const [inputValue, setInputValue] = useState<string>('')
-    const [messageList, setMessageList] = useState<Array<{
-        username: string,
-        content: string
-    }>>([])
+    const [messageList, setMessageList] = useState<Array<MessageResponse>>([])
 
-
-    const userInitialization = (userName: string, userToken: string) => {
-        //连接用户
-        const chatClient = StreamChat.getInstance(API_KEY, {
-            timeout: 6000,
-        })
-        setChatClient(chatClient)
-        chatClient.connectUser({
-            id: userName,
-            name: userName,
-            image: 'https://i.pinimg.com/originals/a4/4a/f3/a44af3bb5f074e3cdb4be8a56232c996.jpg'
-        }, userToken).then(res => {
-            console.log(res);
-            setIsLogin(true)
-            //查询频道
-            chatClient && chatClient.queryChannels({
-                type: 'messaging',
-                members: {$in: [userName]}
-            }).then(res => {
-                if(res && res.length){
-                    //获取一个临时的channelid `!members-c-lScK8ryM2u9fupIZqnERp5jnDHqpvCJPlun5fOI3c`
-                    setChannel(res.find(item => item.id === '!members-c-lScK8ryM2u9fupIZqnERp5jnDHqpvCJPlun5fOI3c') as any)
-                }
-            })
-        })
-    }
-
-    //获取用户列表
+    //authorization && chatclient && user connection
     useEffect(() => {
-        if (isLogin) {
-            fetch('/api/userList', {
-                method: 'get'
-            }).then(res => res.json()).then(res => {
-                if (res) {
-                    setUsernames(res);
+        const username = localStorage.getItem('username')
+        const token = localStorage.getItem('token')
+        if (!username || !token) {
+            //to login page
+            router.push('/login')
+        } else {
+            //set username
+            setUsername(username)
+            //init channel
+            const chatClient = initChatClient()
+            if (chatClient) {
+                //set to state
+                setChatClient(chatClient)
+                //connect to user
+                chatClient.connectUser({
+                    id: username,
+                    name: username,
+                    image: 'https://i.pinimg.com/originals/a4/4a/f3/a44af3bb5f074e3cdb4be8a56232c996.jpg'
+                }, token).then(res => {
+                    //记录用户信息
+                    setUserInfo((res as any).me)
+                }, err => {
+                    console.log(err)
+                })
+            }
+        }
+    })
+    //获取频道
+    useEffect(() => {
+        if (chatClient && username) {
+            chatClient.queryChannels({
+                type: 'messaging',
+                members: {$in: [username]}
+            }).then(res => {
+                if (res && res.length) {
+                    debugger
+                    setChannelList(res)
                 }
             })
         }
-    }, [isLogin, loginUsername])
+    }, [chatClient, username])
+    const initChatClient = () => {
+        let chatClient: StreamChat | null = null
+        try {
+            chatClient = StreamChat.getInstance(API_KEY, {
+                timeout: 6000,
+            })
+        } catch (e) {
+            console.error(e)
+            chatClient = null
+        }
+        return chatClient
+    }
+    //获取用户列表
+    //获取频道下的消息
+    useEffect(() => {
+        if (curChannel) {
+            setMessageList(curChannel.state.messages as any)
+            curChannel.watch()
+            curChannel.on(event => {
+                console.log(event)
+                if (event.type === 'message.new') {
+                    setMessageList(_prev => _prev.concat(event.message as any))
+                }
+            });
+        }
+    }, [curChannel])
+    // useEffect(() => {
+    //     if (isLogin) {
+    //         fetch('/api/userList', {
+    //             method: 'get'
+    //         }).then(res => res.json()).then(res => {
+    //             if (res) {
+    //                 setUsernames(res);
+    //             }
+    //         })
+    //     }
+    // }, [isLogin, loginUsername])
 
     //创建频道并邀请一个人
     const createChannel = (myName: string, otherName: string) => {
@@ -84,7 +135,7 @@ const Home: NextPage = () => {
             //     name: `${myName}-${otherName}`
             // })
             channel.create().then(res => {
-                setChannel(channel)
+                // setChannel(channel)
                 // setChannelList(_prev => [{
                 //     name: `${myName}-${otherName}`,
                 //     channel: channel
@@ -92,88 +143,50 @@ const Home: NextPage = () => {
             });
         }
     }
-    //监听channel的消息
-    useEffect(() => {
-        if (!channel) return
-        channel.watch()
-        channel.on(event => {
-            console.log(event)
-            if (event.type === 'message.new') {
-                setMessageList(_prev => _prev.concat([{
-                    username: (event?.user?.name) as any,
-                    content: (event?.message?.text) as any
-                }]))
-            }
-        });
-    }, [channel])
     return (
         <div style={{margin: '30px'}}>
-            {/* login form */}
-            <h3>登陆表单：</h3>
             <div>
-                <label>
-                    用户名：
-                    <input type="text" value={username} onChange={e => setUsername(e.target.value)}/>
-                </label>
-                <button onClick={() => {
-                    fetch('/api/login', {
-                        method: 'post',
-                        body: JSON.stringify({
-                            username
-                        })
-                    }).then(res => res.json()).then(res => {
-                        if (res) {
-                            //记录用户名
-                            setLoginUsername(username)
-                            //记录token
-                            setUserToken(res.token)
-                            //连接用户
-                            userInitialization(username, res.token)
-                        }
-                    })
-                }}>登陆
-                </button>
+                <h3>{userInfo?.name}</h3>
+                <Avatar src={userInfo?.image || ''}/>
             </div>
-            {/* 用户列表 section */}
-            {
-                isLogin && <>
-                    <h3>用户列表（点击开始私信）：</h3>
-                    <div>
+            <ChannelBox
+                leftEle={<div>
+                    {channelList.map((channel, indx) => {
+                        return <div style={{cursor: 'pointer', lineHeight: '30px'}}
+                                    onClick={() => setCurChannel(channel)} key={channel?.cid}>{`频道${indx + 1}`}</div>
+                    })}
+                </div>}
+                rightEle={curChannel ? <div style={{position: 'relative'}}>
+                    {/* usernames in this channel */}
+                    <div style={{
+                        lineHeight: '30px',
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 1,
+                        backgroundColor: '#ccc',
+                        textAlign: 'center'
+                    }}>
+                        {Object.keys(curChannel.state.members).join(',')}
                         {
-                            usernames.map(username => {
-                                return <div style={{
-                                    color: '#0a8de4',
-                                    cursor: 'pointer',
-                                    fontSize: '18px',
-                                    marginBottom: '6px'
-                                }} key={username} onClick={() => {
-                                    createChannel(loginUsername, username);
-                                }}>{username}</div>
-                            })
+                            // curChannel.state.messages
                         }
                     </div>
-                </>
-            }
-            {/*  聊天区域  */}
-            <h3>聊天区域：</h3>
-            {
-                channel && <div>
-                    <ul>
-                        {messageList.map((message,idx) => {
-                            return <li key={idx}>{message.username}:{message.content}</li>
-                        })}
-                    </ul>
-                    <textarea
-                        value={inputValue} onChange={e => setInputValue(e.target.value)} onKeyDown={e => {
-                        if (e.key === 'Enter' && channel) {
-                            channel.sendMessage({
-                                text: inputValue
-                            })
+                    <MessageBox messageList={messageList.map((item: any) => {
+                        return {
+                            nickname: item.user.name,
+                            avatarSrc: item.user.image,
+                            isMyMessage: item.user.id === userInfo?.id,
+                            messageContent: item.text
                         }
-                    }} cols={30} rows={10}/>
-                </div>
-            }
-
+                    })}/>
+                    {/*  聊天区域  */}
+                    <ChatBox onEnter={(newVal) => {
+                        curChannel?.sendMessage({
+                            text: newVal
+                        })
+                    }}/>
+                </div> : null}
+            />
         </div>
     )
 }

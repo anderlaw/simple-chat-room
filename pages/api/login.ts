@@ -5,8 +5,8 @@ import {StreamChat} from "stream-chat";
 import genToken from "../../utilities/genToken";
 
 type Data = {
-    token:string
-}|null
+    token: string
+} | string
 
 export default function handler(
     req: NextApiRequest,
@@ -25,5 +25,5 @@ export default function handler(
             return
         }
     }
-    res.status(404).send(null)
+    res.status(404).json('""')
 }
